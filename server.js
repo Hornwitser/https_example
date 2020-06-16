@@ -61,6 +61,7 @@ async function start() {
 
         let clientConfig = {
             url: "https://localhost:1234",
+            cert: "cert.pem",
             token: jwt.sign({}, bytes),
         };
         await fs.writeFile(
