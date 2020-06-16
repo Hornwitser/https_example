@@ -1,34 +1,40 @@
 "use strict";
 const fs = require("fs").promises;
 
-const phin = require("phin");
+const WebSocket = require("ws");
 
 
 var config;
-var cert;
-
-async function sendData(data) {
-    let response = await phin({
-        url: `${config.url}/data`,
-        method: "POST",
-        headers: { "Authorization": config.token },
-        core: cert ? { ca: cert, } : {},
-        data,
-    });
-    if (response.statusCode !== 200) {
-        throw new Error(
-            `Error ${response.statusCode}: ${response.body.toString()}`
-        );
-    }
-}
 
 async function client() {
     let content = await fs.readFile("client-config.json", "utf8");
     config = JSON.parse(content);
-    if (config.cert) {
-        cert = await fs.readFile(config.cert);
+    let cert = config.cert ? await fs.readFile(config.cert) : null;
+
+    let options = {
+        headers: { "Authorization": config.token },
     }
-    await sendData({ "hello": "world" });
+    if (cert) {
+        options.ca = cert;
+    }
+    if (/(\d+\.){3}\d+/.test(new URL(config.url).hostname)) {
+        // Overzealous ws lib adds SNI for IP hosts.
+        options.servername = "";
+    }
+
+    let ws = new WebSocket(config.url, options);
+    ws.on("open", function() {
+        ws.send(JSON.stringify({ "hello": "from client" }));
+    });
+
+    ws.on("message", function(msg) {
+        let data = JSON.parse(msg);
+        console.log(data);
+    });
+
+    ws.on("close", function() {
+        console.log("Connection lost");
+    });
 }
 
 if (require.main === module) {

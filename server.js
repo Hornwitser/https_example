@@ -5,37 +5,43 @@ const https = require("https");
 const util = require("util");
 
 const jwt = require("jsonwebtoken");
-const express = require("express");
+const WebSocket = require("ws");
 
 
 var config;
 var secret;
 
-const app = express();
-app.use(function(req, res, next) {
-    let token = req.header("Authorization");
+const wss = new WebSocket.Server({ noServer: true });
+wss.on("connection", function(ws, request) {
+    console.log(`Received connection from ${request.socket.remoteAddress}`);
+
+    ws.send(JSON.stringify({"hello": "from server"}));
+
+    ws.on("message", function(msg) {
+        let data = JSON.parse(msg);
+        console.log(data);
+    });
+
+    ws.on("close", function(code, reason) {
+        console.log(`Connection from ${request.socket.remoteAddress} closed`);
+    });
+});
+
+function authenticate(request) {
+    let token = request.headers["authorization"];
     if (!token) {
-        res.sendStatus(401);
-        return;
+        return false;
     }
 
     try {
         jwt.verify(token, secret);
 
     } catch (err) {
-        res.sendStatus(401);
-        return;
+        return false;
     }
 
-    next();
-});
-app.use(express.json());
-
-
-app.post("/data", function(req, res) {
-    console.log(req.body);
-    res.sendStatus(200);
-});
+    return true;
+}
 
 
 async function start() {
@@ -60,7 +66,7 @@ async function start() {
         );
 
         let clientConfig = {
-            url: "https://localhost:1234",
+            url: "wss://localhost:1234",
             cert: "cert.pem",
             token: jwt.sign({}, bytes),
         };
@@ -73,7 +79,19 @@ async function start() {
     let server = https.createServer({
         key: await fs.readFile(config.key),
         cert: await fs.readFile(config.cert),
-    }, app);
+    });
+
+    server.on("upgrade", function(request, socket, head) {
+        if (!authenticate(request)) {
+            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+            socket.destroy();
+            return;
+        }
+
+        wss.handleUpgrade(request, socket, head, function done(ws) {
+            wss.emit("connection", ws, request);
+        });
+    });
 
     await new Promise((resolve, reject) => {
         server.on("error", reject);
